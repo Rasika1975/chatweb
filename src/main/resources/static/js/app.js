@@ -21,7 +21,34 @@ window.onload = function() {
     connectWebSocket();
     startHeartbeat();
     requestNotificationPermission();
+    
+    // 🔥 ATTACH IMAGE UPLOAD LISTENER
+    attachImageUploadListener();
 };
+
+// Check WebSocket connection status
+function checkWebSocketConnection() {
+    if (!stompClient || !stompClient.connected) {
+        console.log('⚠️ WebSocket disconnected. Reconnecting...');
+        connectWebSocket();
+        return false;
+    }
+    return true;
+}
+
+// 🔥 Attach image upload event listener
+function attachImageUploadListener() {
+    console.log('🎨 Attaching image upload listener...');
+    
+    const imageUpload = document.getElementById('imageUpload');
+    if (imageUpload) {
+        imageUpload.addEventListener('change', handleImageUpload);
+        console.log('✅ Image upload listener attached successfully');
+    } else {
+        console.error('❌ Image upload element NOT FOUND!');
+        setTimeout(attachImageUploadListener, 1000); // Retry after 1 second
+    }
+}
 
 // Request notification permission
 function requestNotificationPermission() {
@@ -58,12 +85,18 @@ function playNotificationSound() {
     audio.play().catch(e => console.log('Sound play failed:', e));
 }
 
-// Heartbeat - update last seen
+// Heartbeat - keep connection alive
 function startHeartbeat() {
     setInterval(async () => {
         if (currentUserId) {
             try {
                 await fetch(`${API_URL}/heartbeat/${currentUserId}`, { method: 'POST' });
+                
+                // 🔥 Check WebSocket connection
+                if (stompClient && !stompClient.connected) {
+                    console.warn('⚠️ WebSocket disconnected during heartbeat. Reconnecting...');
+                    connectWebSocket();
+                }
             } catch (error) {
                 console.error('Heartbeat error:', error);
             }
@@ -254,7 +287,7 @@ async function loadChatHistory() {
     }
 }
 
-// Connect WebSocket
+// Connect WebSocket with reconnection
 function connectWebSocket() {
     console.log('🔌 Connecting to WebSocket...');
 
@@ -262,9 +295,14 @@ function connectWebSocket() {
     stompClient = Stomp.over(socket);
     stompClient.debug = null;
 
-    stompClient.connect({}, function(frame) {
-        console.log('✅ WebSocket Connected');
-
+    // Store subscriptions to be applied after connection
+    let subscriptionsActive = false;
+    
+    const setupSubscriptions = function() {
+        if (subscriptionsActive) return; // Prevent duplicate subscriptions
+        
+        subscriptionsActive = true;
+        
         stompClient.subscribe('/topic/messages', function(message) {
             const msg = JSON.parse(message.body);
             console.log('📨 Received message:', msg);
@@ -286,9 +324,36 @@ function connectWebSocket() {
                 showTypingIndicator(data.isTyping);
             }
         });
+    };
+
+    stompClient.connect({}, function(frame) {
+        console.log('✅ WebSocket Connected');
+        console.log('🔗 Connection status:', stompClient.connected);
+        
+        setTimeout(setupSubscriptions, 100);
     }, function(error) {
-        console.error('❌ WebSocket error:', error);
+        console.error('❌ WebSocket connection error:', error);
+        if (error && typeof error === 'object') {
+            if (error.command) {
+                console.error('STOMP command:', error.command);
+            }
+            if (error.headers) {
+                console.error('STOMP headers:', error.headers);
+            }
+            if (error.body) {
+                console.error('STOMP body:', error.body);
+            }
+        }
+        console.log('🔄 Reconnecting in 3 seconds...');
+        setTimeout(connectWebSocket, 3000);
     });
+    
+    // 🔥 Handle socket close event
+    socket.onclose = function() {
+        console.warn('⚠️ WebSocket closed. Connection lost...');
+        subscriptionsActive = false; // Reset subscription flag
+        setTimeout(connectWebSocket, 3000);
+    };
 }
 
 // Show typing indicator
@@ -368,13 +433,162 @@ function sendMessage() {
     sendTypingIndicator(false);
 }
 
-// Display message
+// ========== IMAGE UPLOAD CODE START ==========
+
+// Attach event listener when page loads
+window.addEventListener('load', function() {
+    console.log('🎨 Attaching image upload listener...');
+    
+    const imageUpload = document.getElementById('imageUpload');
+    if (imageUpload) {
+        imageUpload.addEventListener('change', handleImageUpload);
+        console.log('✅ Image upload listener attached');
+    } else {
+        console.error('❌ Image upload element not found!');
+    }
+});
+
+// ========== IMAGE UPLOAD CODE END ==========
+
+// 🔥 Handle image file selection
+function handleImageUpload(event) {
+    console.log('📷 Image upload triggered!');
+    
+    const file = event.target.files[0];
+    
+    if (!file) {
+        console.log('⚠️ No file selected');
+        return;
+    }
+    
+    console.log('📁 File details:', {
+        name: file.name,
+        size: file.size + ' bytes',
+        type: file.type
+    });
+    
+    // Check if user is selected
+    if (!currentReceiverId) {
+        alert('⚠️ Please select a user first!');
+        console.error('❌ No receiver selected');
+        return;
+    }
+    
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert('❌ Image too large! Maximum 5MB allowed');
+        console.error('❌ File too large:', file.size);
+        return;
+    }
+    
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+        alert('❌ Please select an image file!');
+        console.error('❌ Invalid file type:', file.type);
+        return;
+    }
+    
+    console.log('✅ File validation passed');
+    console.log('🔄 Converting to Base64...');
+    
+    // Convert to Base64
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        const base64Image = e.target.result;
+        console.log('✅ File converted to Base64');
+        console.log('📦 Base64 length:', base64Image.length, 'characters');
+        sendImageMessage(base64Image);
+    };
+    
+    reader.onerror = function(error) {
+        console.error('❌ FileReader error:', error);
+        alert('❌ Error reading file!');
+    };
+    
+    reader.readAsDataURL(file);
+    
+    // Clear input
+    event.target.value = '';
+    console.log('🧹 Input cleared for next upload');
+}
+
+// 🔥 Send image message via WebSocket
+function sendImageMessage(base64Data) {
+    console.log('📤 sendImageMessage() called');
+    console.log('🔍 Checking WebSocket connection...');
+    console.log('   stompClient exists:', !!stompClient);
+    console.log('   stompClient.connected:', stompClient ? stompClient.connected : 'N/A');
+    
+    // Check and reconnect if needed
+    if (!stompClient || !stompClient.connected) {
+        console.error('❌ WebSocket not connected!');
+        alert('⚠️ Connection lost. Reconnecting...');
+        connectWebSocket();
+        
+        // Retry after 2 seconds
+        setTimeout(() => {
+            if (stompClient && stompClient.connected) {
+                sendImageMessage(base64Data);
+            } else {
+                alert('❌ Failed to reconnect. Please refresh the page.');
+            }
+        }, 2000);
+        return;
+    }
+    
+    if (!currentReceiverId) {
+        console.error('❌ No receiver selected!');
+        alert('⚠️ Please select a user first!');
+        return;
+    }
+    
+    const message = {
+        senderId: parseInt(currentUserId),
+        receiverId: parseInt(currentReceiverId),
+        content: '',
+        messageType: 'IMAGE',
+        imageData: base64Data,
+        status: 'SENT',
+        isRead: false
+    };
+    
+    console.log('📦 Message object created:', {
+        senderId: message.senderId,
+        receiverId: message.receiverId,
+        messageType: message.messageType,
+        imageDataLength: base64Data.length
+    });
+    
+    try {
+        console.log('🚀 Sending via WebSocket...');
+        stompClient.send("/app/send", {}, JSON.stringify(message));
+        console.log('✅ Image message sent successfully!');
+    } catch (error) {
+        console.error('❌ Error sending image:', error);
+        // Attempt to reconnect and retry
+        connectWebSocket();
+        setTimeout(() => {
+            if (stompClient && stompClient.connected) {
+                try {
+                    stompClient.send("/app/send", {}, JSON.stringify(message));
+                    console.log('✅ Image message sent after reconnection!');
+                } catch (retryError) {
+                    console.error('❌ Failed to send after reconnection:', retryError);
+                    alert('❌ Failed to send image. Please try again.');
+                }
+            }
+        }, 1000);
+    }
+}
+
+// Update displayMessage function to handle images
 function displayMessage(msg, showNotif) {
     const messageArea = document.getElementById('messageArea');
-
+    
     const noMsgDiv = messageArea.querySelector('div[style*="No messages"]');
     if (noMsgDiv) noMsgDiv.remove();
-
+    
     const messageDiv = document.createElement('div');
     const isSent = msg.senderId == currentUserId;
     messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
@@ -383,7 +597,7 @@ function displayMessage(msg, showNotif) {
         hour: '2-digit',
         minute: '2-digit'
     }) : 'now';
-
+    
     let statusIcon = '';
     if (isSent) {
         if (msg.status === 'SEEN' || msg.isRead) {
@@ -392,26 +606,63 @@ function displayMessage(msg, showNotif) {
             statusIcon = '<span class="sent-tick">✓</span>';
         }
     }
+    
+    // 🔥 IMAGE HANDLING
+    let messageContent = '';
+    if (msg.messageType === 'IMAGE' && msg.imageData) {
+        console.log('🖼️ Displaying image message');
+        messageContent = `<img src="${msg.imageData}" class="message-image" onclick="openImageModal('${msg.imageData}')" alt="Image">`;
+    } else {
+        messageContent = msg.content || '';
+    }
 
     messageDiv.innerHTML = `
         <div class="message-content">
-            ${msg.content}
+            ${messageContent}
             <div class="message-time">${time} ${statusIcon}</div>
         </div>
     `;
 
     messageArea.appendChild(messageDiv);
     messageArea.scrollTop = messageArea.scrollHeight;
-
+    
+    // Notification
     if (!isSent && showNotif && msg.senderId != currentUserId) {
         fetch(`${API_URL}/users/${msg.senderId}`)
             .then(res => res.json())
             .then(user => {
-                showNotification(user.username, msg.content);
+                const notifText = msg.messageType === 'IMAGE' ? '📷 Sent an image' : msg.content;
+                showNotification(user.username, notifText);
             })
             .catch(err => console.error('Notification error:', err));
     }
 }
+
+// Open image in modal
+function openImageModal(imageSrc) {
+    console.log('🖼️ Opening image modal');
+    
+    const modal = document.getElementById('imageModal');
+    const modalImage = document.getElementById('modalImage');
+    
+    if (modal && modalImage) {
+        modalImage.src = imageSrc;
+        modal.style.display = 'flex';
+    }
+}
+
+// Close image modal
+function closeImageModal() {
+    console.log('❌ Closing image modal');
+    
+    const modal = document.getElementById('imageModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+window.openImageModal = openImageModal;
+window.closeImageModal = closeImageModal;
 
 // Logout
 async function logout() {

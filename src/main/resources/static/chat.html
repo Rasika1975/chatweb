@@ -34,11 +34,23 @@
         </div>
 
         <div class="message-input">
-            <input type="text" id="messageText" placeholder="Type a message..."
+            <!-- 🆕 Image upload button -->
+            <label for="imageUpload" class="image-upload-btn" title="Send Image">
+                📷
+                <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+            </label>
+            
+            <input type="text" id="messageText" placeholder="Type a message..." 
                    onkeypress="if(event.key==='Enter') sendMessage()">
             <button onclick="sendMessage()">Send</button>
         </div>
     </div>
+</div>
+
+<!-- Image Preview Modal -->
+<div id="imageModal" class="image-modal" onclick="if(event.target.id==='imageModal') closeImageModal()">
+    <span class="close-modal" onclick="closeImageModal()">×</span>
+    <img id="modalImage" src="" alt="Preview">
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>

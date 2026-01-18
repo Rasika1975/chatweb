@@ -18,12 +18,15 @@ public class Message {
     private int senderId;
     private int receiverId;
 
-    @Column(nullable = false)
-    private String content;
+    @Column(length = 1000)
+    private String content; // Text message
 
     private String status; // SENT / DELIVERED / SEEN
-
     private LocalDateTime time;
+    private boolean isRead;
 
-    private boolean isRead; // 🆕 NEW - for unread count
+    private String messageType; // TEXT / IMAGE
+
+    @Lob
+    private String imageData; // Base64 encoded image
 }
