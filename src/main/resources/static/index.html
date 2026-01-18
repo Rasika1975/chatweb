@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatApp - Login</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="container">
+    <div class="login-box">
+        <h1>💬 ChatApp</h1>
+        <h3>Login to Continue</h3>
+
+        <input type="text" id="username" placeholder="Username" required>
+        <input type="password" id="password" placeholder="Password" required>
+
+        <button onclick="login()">Login</button>
+        <button onclick="showRegister()" class="secondary">Register</button>
+
+        <p id="message"></p>
+    </div>
+
+    <div class="register-box" id="registerBox" style="display:none;">
+        <h1>📝 Register</h1>
+
+        <input type="text" id="regUsername" placeholder="Username" required>
+        <input type="password" id="regPassword" placeholder="Password" required>
+
+        <button onclick="register()">Create Account</button>
+        <button onclick="showLogin()" class="secondary">Back to Login</button>
+
+        <p id="regMessage"></p>
+    </div>
+</div>
+
+<script>
+    const API_URL = 'http://localhost:8080';
+
+    function showRegister() {
+        document.querySelector('.login-box').style.display = 'none';
+        document.getElementById('registerBox').style.display = 'block';
+    }
+
+    function showLogin() {
+        document.querySelector('.login-box').style.display = 'block';
+        document.getElementById('registerBox').style.display = 'none';
+    }
+
+    async function register() {
+        const username = document.getElementById('regUsername').value;
+        const password = document.getElementById('regPassword').value;
+
+        if (!username || !password) {
+            document.getElementById('regMessage').innerText = '❌ Fill all fields';
+            return;
+        }
+
+        const response = await fetch(`${API_URL}/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        const result = await response.text();
+        document.getElementById('regMessage').innerText = result;
+
+        if (result.includes('Successful')) {
+            setTimeout(showLogin, 1500);
+        }
+    }
+
+    async function login() {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+
+        if (!username || !password) {
+            document.getElementById('message').innerText = '❌ Fill all fields';
+            return;
+        }
+
+        const response = await fetch(`${API_URL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        const result = await response.text();
+
+        if (result.includes('Success')) {
+            const userId = result.split('User ID: ')[1];
+            localStorage.setItem('userId', userId);
+            localStorage.setItem('username', username);
+            window.location.href = 'chat.html';
+        } else {
+            document.getElementById('message').innerText = '❌ ' + result;
+        }
+    }
+</script>
+</body>
+</html>
